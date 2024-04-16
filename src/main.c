@@ -38,16 +38,16 @@ void benchmark_custom_allocator() {
 
 int main(int argc, char * argv[]) {
     num_threads = atoi(argv[1]);
-    int allocator_type = atoi(argv[2]); // 0 for standard, 1 for custom
+//    int allocator_type = atoi(argv[2]); // 0 for standard, 1 for custom
 
-    if (allocator_type == 0) {
+//    if (allocator_type == 0) {
         printf("Benchmarking 'malloc'\n");
         benchmark_standard_allocator();
-    }
-    else {
+//    }
+//    else {
         printf("Benchmarking 'LYallocator'\n");
         benchmark_custom_allocator();
-    }
+//    }
 
     return 0;
 }

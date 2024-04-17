@@ -4,8 +4,9 @@ OMPFLAGS = -fopenmp
 LIBS = -lm -pthread
 OUT = allocator
 
-SOURCES = main.c LYMalloc.c
-HEADERS = LYMalloc.h
+
+SOURCES = main.c benchmark.c LYMalloc.c
+HEADERS = benchmark.h LYMalloc.h  
 OBJECTS = $(SOURCES:.c=.o)
 
 all: $(OUT)

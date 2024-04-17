@@ -11,24 +11,16 @@ static ThreadHeap localHeaps;
  * @brief Split a block of memory into multiple BlockNodes chained into BlockList
  * ****/
 void splitMemoryToBlocks(char* mem, size_t totalSize, BlockList* list) {
-    list->head = list->tail = NULL;
-    BlockNode* prevBlock = NULL;
-    int numBlocks = totalSize / BLOCK_SIZE;
+    list->dummy.next = NULL;
+    BlockNode* prevBlock = &list->dummy;
+    int numBlocks = ceil(totalSize / BLOCK_SIZE);
     list->availableBlocks = numBlocks;
+
     for (int i = 0; i < numBlocks; ++i) {
         BlockNode* block = (BlockNode*)(mem + i * BLOCK_SIZE);
-        // block->size = BLOCK_SIZE;
-        block->prev = prevBlock;
-        block->next = NULL;
-        if (prevBlock != NULL) {
-            prevBlock->next = block;
-        }
-        else {
-            list->head = block;  // The first block becomes the head
-        }
+        prevBlock->next = block;
         prevBlock = block;
     }
-    list->tail = prevBlock;  // The last block becomes the tail
 }
 
 
@@ -56,76 +48,65 @@ void initMemoryAllocator(int threadCount) {
     pthread_create(&reclaim_thread, NULL, reclaimRoutine, NULL);
 }
 
-void addToLocalHeap(BlockNode* block) {
-    if (localHeaps.heap.tail != NULL) {
-        localHeaps.heap.tail->next = block;
-        block->prev = localHeaps.heap.tail;
-        localHeaps.heap.tail = block;
+void addToLocalHeap(BlockList* list, BlockNode* block) {
+    if (list->dummy.next == NULL) {
+        list->dummy.next = block;
     }
-    else {      // localHeap is empty
-        localHeaps.heap.head = localHeaps.heap.tail = block;
-        block->prev = block->next = NULL;
+    else {
+        BlockNode* current = &list->dummy;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = block;
     }
-    ++localHeaps.heap.availableBlocks;
+    // Increment availableBlocks for each added block
+    ++list->availableBlocks;
 }
+
 
 BlockNode* findAndDetachBlocks(BlockList* list, int numBlocks) {
     if (list == NULL || numBlocks <= 0)
         return NULL;
 
-    BlockNode* start = list->head;
+    BlockNode* prev = &list->dummy;
+    BlockNode* start = list->dummy.next;
     BlockNode* end = NULL;
     int count = 0;
 
-    // Traverse the list to find enough consecutive blocks
-    while (start != NULL) {
+    if (start != NULL) {
         end = start;
         count = 1;
 
-        // Try to find enough consecutive blocks
         while (count < numBlocks && end != NULL && end->next == end + 1) {
             end = end->next;
             ++count;
         }
 
         if (count == numBlocks) {
-            // Separate the blocks
-            if (start->prev)
-                start->prev->next = end->next;
-            if (end->next)
-                end->next->prev = start->prev;
-
-            if (start == list->head)
-                list->head = end->next;
-            if (end == list->tail)
-                list->tail = start->prev;
-
-            start->prev = NULL;
-            end->next = NULL;
-
+            prev->next = end->next;
+            end->next = NULL; // detach the segment
+            list->availableBlocks -= numBlocks;
             return start;
         }
-        start = end->next;
+
+        //prev = start;
+        //start = end->next;
     }
 
     return NULL;  // Not enough consecutive blocks were found
 }
 
+
 BlockNode* detachFirstBlock(BlockList* list) {
-    if (list->head == NULL) {
+    BlockNode* block = list->dummy.next;
+    if (block == NULL) {
         return NULL;
     }
-    BlockNode* block = list->head;
-    list->head = block->next;
-    if (list->head == NULL) {
-        list->tail = NULL;
-    }
-    else {
-        list->head->prev = NULL;
-    }
-    
+    list->dummy.next = block->next;  // Remove the first block from the list
+    block->next = NULL;  // Detach the block completely from the list
     return block;
 }
+
 
 BlockNode* findLastBlock(BlockNode* start) {
     while (start && start->next) {
@@ -136,7 +117,6 @@ BlockNode* findLastBlock(BlockNode* start) {
 
 void* customMalloc(size_t size) {
     int numBlocksNeeded = ceil((double)size / BLOCK_SIZE);
-    BlockNode* block = NULL;
     BlockNode* firstBlock = NULL;
     BlockNode* lastBlock = NULL;
 
@@ -148,42 +128,37 @@ void* customMalloc(size_t size) {
             localHeaps.heap.availableBlocks -= numBlocksNeeded;
             numBlocksNeeded = 0;
         }
-        else {
-            firstBlock = findAndDetachBlocks(&localHeaps.heap, localHeaps.heap.availableBlocks);
-            numBlocksNeeded -= localHeaps.heap.availableBlocks;
-            localHeaps.heap.availableBlocks = 0;
-        }
+        //else {
+        //    firstBlock = findAndDetachBlocks(&localHeaps.heap, localHeaps.heap.availableBlocks);
+        //    numBlocksNeeded -= localHeaps.heap.availableBlocks;
+        //    localHeaps.heap.availableBlocks = 0;
+        //}
     }
 
     // If the localHeap is not enough, try to migrate memory blocks from the globalHeap to the localHeap
     if (numBlocksNeeded > 0) {
         #pragma omp critical(globalHeap)
-        {           
-            BlockNode* tmpBlock = NULL;
-            int i = 0;
-            for (i = 0; i < localHeaps.blocksToReclaim && globalHeap.head != NULL; ++i) {
-                block = detachFirstBlock(&globalHeap);
-                if (block == NULL) {
-                    break;
+        {
+            if (globalHeap.availableBlocks >= numBlocksNeeded) {
+                firstBlock = findAndDetachBlocks(&globalHeap, numBlocksNeeded);
+                if (firstBlock != NULL) {
+                    globalHeap.availableBlocks -= numBlocksNeeded;
+                    // migrate to localHeap
+                    addToLocalHeap(&localHeaps.heap, firstBlock);
+                    localHeaps.heap.availableBlocks += numBlocksNeeded;
                 }
-                addToLocalHeap(block); // Add block to localHeap
-            }
-            globalHeap.availableBlocks -= i;
-            localHeaps.blocksToReclaim += 2;
+                globalHeap.availableBlocks -= numBlocksNeeded;
 
-            // Try to allocate the remaining needed blocks from localHeap now updated
-            if (i > 0) {
-                int tmp = (localHeaps.heap.availableBlocks < numBlocksNeeded) ? localHeaps.heap.availableBlocks : numBlocksNeeded;
-                tmpBlock = findAndDetachBlocks(&localHeaps.heap, tmp);
-                localHeaps.heap.availableBlocks -= tmp;
-                if (firstBlock == NULL)
-                    firstBlock = tmpBlock;
-                else
-                    lastBlock->next = tmpBlock;
-                if (tmpBlock) {
-                    lastBlock = (tmpBlock->next == NULL) ? tmpBlock : findLastBlock(tmpBlock);
-                    numBlocksNeeded -= i;
-                }
+
+            }
+        }
+
+        #pragma omp critical(localHeaps)
+        {
+            if (localHeaps.heap.availableBlocks >= numBlocksNeeded) {
+                firstBlock = findAndDetachBlocks(&localHeaps.heap, numBlocksNeeded);
+                localHeaps.heap.availableBlocks -= numBlocksNeeded;
+                numBlocksNeeded = 0;
             }
         }
     }
@@ -226,9 +201,8 @@ void* customMalloc(size_t size) {
         }
     }
 
-    // Update last used times and return
     if (firstBlock) {
-        block = firstBlock;
+        BlockNode* block = firstBlock;
         while (block) {
             block->lastUsed = time(NULL);
             block = block->next;
@@ -240,44 +214,22 @@ void* customMalloc(size_t size) {
 }
 
 
+
 void customFree(void* ptr) {
-    // First get the starting address of the actual BlockNode structure
     BlockNode* block = (BlockNode*)((char*)ptr - sizeof(BlockNode));
-    BlockNode* current = block;
 
-    // Need to determine the beginning and end of this series of blocks
-    while (current->prev && current->prev == current - 1) {
-        current = current->prev;
-    }
-
-    BlockNode* start = current;
-    BlockNode* end = block;
-
-    while (end->next && end->next == end + 1) {
-        end->next->prev = end;
-        end = end->next;
-    }
-
-    // Update lastUsed timestamps for each block
-    current = start;
-    while (current != end->next) {
-        current->lastUsed = time(NULL);
-        current = current->next;
-    }
-
+    // Directly attach block to the head of the localHeap
     #pragma omp critical(localHeaps)
     {
-        // Add the entire chain of consecutive blocks back to the head of the localHeap
-        if (localHeaps.heap.head != NULL) {
-            localHeaps.heap.head->prev = end;
-        }
-        end->next = localHeaps.heap.head;
-        localHeaps.heap.head = start;
-        start->prev = NULL;
+        BlockNode* lastBlock = findLastBlock(block);
+        lastBlock->next = localHeaps.heap.dummy.next;
+        localHeaps.heap.dummy.next = block;
+    }
 
-        if (localHeaps.heap.tail == NULL) {  // If the heap is empty, update the tail pointer
-            localHeaps.heap.tail = end;
-        }
+    // Update lastUsed timestamps
+    while (block) {
+        block->lastUsed = time(NULL);
+        block = block->next;
     }
 }
 

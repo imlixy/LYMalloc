@@ -15,17 +15,15 @@
 #define NUM_SIZE_CLASSES 3
 
 typedef struct BlockNode {
-    struct BlockNode* prev;
     struct BlockNode* next;
-    // size_t size;
     time_t lastUsed;  // Record the last time a memory block was used
 } BlockNode;
 
 typedef struct {
-    BlockNode* head;
-    BlockNode* tail;
-    int availableBlocks;
+    BlockNode dummy;  // Dummy head node to simplify operations
+    int availableBlocks;  // Count of available blocks
 } BlockList;
+
 
 typedef struct {
     BlockList heap;

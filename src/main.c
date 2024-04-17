@@ -1,20 +1,30 @@
 #include "LYMalloc.h"
 #include "benchmark.h"
 
-int main() {
+int main(int argc, char *argv[]) {
+    int num_threads = atoi(argv[1]);
+    int c = atoi(argv[2]);
 
-    benchmark("System malloc", malloc, free);
-    benchmark("Your Custom Allocator", customMalloc, customFree);
-    benchmark("Jemalloc", je_malloc, je_free);
-    // benchmark("Hoard", hoard_malloc, hoard_free); // Similar for Hoard
+    if (c == 1) {
+        benchmark("System malloc", malloc, free, num_threads);
+        fragmentation_test("System malloc", malloc, free, num_threads);
+        false_sharing_test("System malloc" ,malloc, free, num_threads);
+    }
 
-    false_sharing_test("System malloc" ,malloc, free);
-    false_sharing_test("Your Custom Allocator", customMalloc, customFree);
-    false_sharing_test("Jemalloc", je_malloc, je_free);
+    if (c == 2) {
+        benchmark("LYMalloc", LYMalloc, LYFree, num_threads);       
+        fragmentation_test("LYMalloc", LYMalloc, LYFree, num_threads);
+        false_sharing_test("LYMalloc", LYMalloc, LYFree, num_threads); 
+    }
 
-    fragmentation_test("System malloc", malloc, free);
-    fragmentation_test("Your Custom Allocator", customMalloc, customFree);
-    //fragmentation_test("Jemalloc", je_malloc, je_free);
+    if (c == 3) {
+        benchmark("System malloc", malloc, free, num_threads);
+        benchmark("LYMalloc", LYMalloc, LYFree, num_threads); 
+        fragmentation_test("System malloc", malloc, free, num_threads);      
+        fragmentation_test("LYMalloc", LYMalloc, LYFree, num_threads);
+        false_sharing_test("System malloc" ,malloc, free, num_threads);
+        false_sharing_test("LYMalloc", LYMalloc, LYFree, num_threads); 
+    }
 
     return 0;
 }

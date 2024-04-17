@@ -2,44 +2,40 @@
 #define LYMALLOC_H
 
 #include <stdio.h>
+#include <omp.h>
 #include <stdlib.h>
 #include <time.h>
-#include <omp.h>
 #include <math.h>
 #include <pthread.h>
 #include <unistd.h>
 
+
 #define HEAP_SIZE 1024 * 1024  // Assuming 1MB of local heap per thread
-#define BLOCK_SIZE 256
-#define BLOCK_COUNT 1024
-#define NUM_SIZE_CLASSES 3
+#define ALIGN 63
+#define SIZE 256
+#define GSIZE 1024
 
-typedef struct BlockNode {
-    struct BlockNode* next;
-    time_t lastUsed;  // Record the last time a memory block was used
-} BlockNode;
-
-typedef struct {
-    BlockNode dummy;  // Dummy head node to simplify operations
-    int availableBlocks;  // Count of available blocks
-} BlockList;
-
+typedef struct MemoryBlock {
+    void* start;
+    size_t length;
+    struct MemoryBlock* next;
+} MemoryBlock;
 
 typedef struct {
-    BlockList heap;
-    int blocksToReclaim;
-} ThreadHeap;
+    MemoryBlock* freeHead;
+    MemoryBlock* usedHead;
+} Heap;
 
-void splitMemoryToBlocks(char* mem, size_t totalSize, BlockList* list);
+
+void initHeap(Heap* heap, void* start, size_t length);
+void* reclaimRoutine(void* arg);
 void initMemoryAllocator(int threadCount);
-void addToLocalHeap(BlockNode* block);
-BlockNode* findAndDetachBlocks(BlockList* list, int numBlocks);
-BlockNode* detachFirstBlock(BlockList* list);
-void* customMalloc(size_t size);
-void customFree(void* ptr);
+void addToHeap(MemoryBlock** head, MemoryBlock* newBlock);
+MemoryBlock* findAndDetachBlock(Heap* heap, size_t len);
+MemoryBlock* findBlock(Heap* heap, size_t len);
+void* LYMalloc(size_t size);
+void LYFree(void* ptr);
 void reclaimMemory(int num_threads);
-void freeMemoryAllocator();
-int LYMalloc(int threadCount);
-
+void freeMemoryAllocator(int num_threads);
 
 #endif

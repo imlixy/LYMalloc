@@ -3,7 +3,7 @@
 #include "LYMalloc.h"
 #include <omp.h>
 
-#define ALLOCATE_SIZE 16384 * 1024  // Adjust size to increase the workload
+#define ALLOCATE_SIZE 1024  // Adjust size to increase the workload
 #define NUM_ALLOCATIONS 1000        // Increase the number of allocations
 
 int num_threads;
@@ -12,6 +12,10 @@ void benchmark_standard_allocator() {
     #pragma omp parallel for num_threads(num_threads)
     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
         char* block = malloc(ALLOCATE_SIZE);
+        if (block == NULL) {
+            fprintf(stderr, "Memory allocation failed for thread %d\n", omp_get_thread_num());
+            continue;  // Skip this iteration if memory allocation failed
+        }
         for (size_t j = 0; j < ALLOCATE_SIZE; j += 1024) {
             block[j] = 'a';
         }
@@ -23,10 +27,16 @@ void benchmark_standard_allocator() {
 
 void benchmark_custom_allocator() {
     initMemoryAllocator(num_threads);
+    int t = 0;
     double start_time = omp_get_wtime();
     #pragma omp parallel for num_threads(num_threads)
     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
         char* block = (char*)customMalloc(ALLOCATE_SIZE);
+        if (block == NULL) {
+            //fprintf(stderr, "Memory allocation failed for thread %d\n", omp_get_thread_num());
+            fprintf(stderr, "%d fail\n", ++t);
+            continue;  // Skip this iteration if memory allocation failed
+        }
         for (size_t j = 0; j < ALLOCATE_SIZE; j += 1024) {
             block[j] = 'a';
         }

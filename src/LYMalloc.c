@@ -34,7 +34,7 @@ void splitMemoryToBlocks(char* mem, size_t totalSize, BlockList* list) {
 
 void* reclaimRoutine(void* arg) {
     while (keep_running) {
-        sleep(5);  // Performs a memory recall every 5 seconds
+        sleep(1);  // Performs a memory recall every 5 seconds
         reclaimMemory(omp_get_max_threads());
     }
     return NULL;
@@ -158,12 +158,10 @@ void* customMalloc(size_t size) {
     // If the localHeap is not enough, try to migrate memory blocks from the globalHeap to the localHeap
     if (numBlocksNeeded > 0) {
         #pragma omp critical(globalHeap)
-        {
-            int toMigrate = (localHeaps.blocksToReclaim <= numBlocksNeeded) ? localHeaps.blocksToReclaim : numBlocksNeeded;
-            localHeaps.blocksToReclaim += 2;
+        {           
             BlockNode* tmpBlock = NULL;
             int i = 0;
-            for (i = 0; i < toMigrate && globalHeap.head != NULL; ++i) {
+            for (i = 0; i < localHeaps.blocksToReclaim && globalHeap.head != NULL; ++i) {
                 block = detachFirstBlock(&globalHeap);
                 if (block == NULL) {
                     break;
@@ -171,12 +169,17 @@ void* customMalloc(size_t size) {
                 addToLocalHeap(block); // Add block to localHeap
             }
             globalHeap.availableBlocks -= i;
+            localHeaps.blocksToReclaim += 2;
 
             // Try to allocate the remaining needed blocks from localHeap now updated
             if (i > 0) {
-                tmpBlock = findAndDetachBlocks(&localHeaps.heap, numBlocksNeeded);
-                if (firstBlock == NULL) firstBlock = tmpBlock;
-                else lastBlock->next = tmpBlock;
+                int tmp = (localHeaps.heap.availableBlocks < numBlocksNeeded) ? localHeaps.heap.availableBlocks : numBlocksNeeded;
+                tmpBlock = findAndDetachBlocks(&localHeaps.heap, tmp);
+                localHeaps.heap.availableBlocks -= tmp;
+                if (firstBlock == NULL)
+                    firstBlock = tmpBlock;
+                else
+                    lastBlock->next = tmpBlock;
                 if (tmpBlock) {
                     lastBlock = (tmpBlock->next == NULL) ? tmpBlock : findLastBlock(tmpBlock);
                     numBlocksNeeded -= i;
@@ -197,11 +200,12 @@ void* customMalloc(size_t size) {
                 if (lastBlock != NULL) {
                     lastBlock->next = block;
                     block->prev = lastBlock;
-                } else {
+                }
+                else {
                     firstBlock = block;
                 }
                 lastBlock = block;
-                numBlocksNeeded--;
+                --numBlocksNeeded;
             }
             globalHeap.availableBlocks -= (numBlocksNeeded > 0 ? numBlocksNeeded : 0);
         }
@@ -214,7 +218,8 @@ void* customMalloc(size_t size) {
             if (lastBlock != NULL) {
                 lastBlock->next = block;
                 block->prev = lastBlock;
-            } else {
+            }
+            else {
                 firstBlock = block;
             }
             lastBlock = block;

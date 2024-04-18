@@ -1,3 +1,34 @@
+/*
+ * Summary:
+ * This code implements a custom dynamic memory allocator designed to work with a multi-threaded
+ * environment. It features a thread-local memory management strategy to reduce contention and 
+ * improve performance. The allocator manages memory through separate local heaps for each thread 
+ * and a global heap for overflow and shared allocations.
+ * 
+ * The code also includes a background thread responsible for reclaiming memory and balancing loads
+ * between local and global heaps.
+ *
+ * Key Features:
+ * - Thread-local heaps for efficient concurrent access.
+ * - A global heap to manage overflow and shared resources.
+ * - A background thread that performs memory reclamation and balancing.
+ * - Functions for memory allocation (`LYMalloc`), deallocation (`LYFree`), and initialization
+ *   (`initMemoryAllocator`).
+ * - Integration of OpenMP for handling multi-threading.
+ *
+ * Author: Xinyu Li
+ * Last Modified: 04/17/2024
+ */
+#include "LYMalloc.h"
+
+pthread_t reclaim_thread;
+volatile int keep_running = 1;  // Flags that control the running of background threads
+
+static Heap globalHeap;
+static Heap localHeaps;
+#pragma omp threadprivate(localHeaps)
+
+
 #include "LYMalloc.h"
 
 pthread_t reclaim_thread;
